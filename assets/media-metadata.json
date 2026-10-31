@@ -1,0 +1,35 @@
+{
+  "video": {
+    "path": "assets/milk-tea-5s.mp4",
+    "sha256": "131447d63a78d3e95543922f7d77648bd7e0ceb3d2b4cacef611ff6e5cca215c",
+    "bytes": 5073461,
+    "codec": "h264",
+    "width": 720,
+    "height": 1280,
+    "frame_rate": "24/1",
+    "frames": 121,
+    "video_stream_duration_seconds": 5.041667,
+    "container_duration_seconds": 5.056
+  },
+  "audio": {
+    "codec": "aac",
+    "sample_rate_hz": 32000,
+    "channels": 2,
+    "duration_seconds": 5.056
+  },
+  "screenshot": {
+    "path": "assets/dots-conversation.png",
+    "sha256": "a362f985c7196f235df4c3441571c6cd3a3523981bd2599253985dd37a8a8904",
+    "bytes": 2017395
+  },
+  "validation": {
+    "ffprobe": "passed",
+    "full_decode": "passed",
+    "audio_listening": "not_performed",
+    "new_generation": "not_performed"
+  },
+  "visual_limitations_reported": [
+    "奶感偏弱",
+    "杯身略收底，未完全符合直筒杯要求"
+  ]
+}

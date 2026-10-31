@@ -1,0 +1,18 @@
+{
+  "name": "seedacne-dots",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "bash scripts/build.sh",
+    "validate": "node scripts/validate-artifact.mjs",
+    "check:repo": "node scripts/check-repo.mjs",
+    "check": "npm test && npm run build && npm run validate && npm run check:repo"
+  },
+  "version": "0.1.0",
+  "description": "Connect your own Seedacne Managed Agent to OpenAI Dots with a private Sites MCP bridge",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  }
+}
