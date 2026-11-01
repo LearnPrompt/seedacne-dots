@@ -31,3 +31,12 @@
 本轮尚未启动新的图片/视频生成模型调用；原 Session 两轮修改仍需真实产物验收，不能把上传成功或旧文件当作完成。
 
 使用步骤见 [参考图与多轮修改](references-and-turns.md)。
+
+## 0.2.1：空文件列表与提交前恢复修复
+
+线上复现新 Session 的 Files 查询返回整个 JSON null；旧实现读取 data 时抛出异常，使参考图已经挂载、但 user.message 尚未提交的任务停在 needs_review。此问题属于桥接代码的空返回兼容缺口。
+
+- 增加实际空返回回归，先复现失败，再修正为空列表；空列表不意味着任务完成。
+- 50/50 本地测试通过，包含原会话安全恢复、两次只读核验、并发原子领取与模糊 POST 不重发。
+- 私有部署已更新到 0.2.1。对同一个受影响任务，实际 get_outputs 已返回空 files/pending_registration，不再抛异常；get_task 返回 recoverable_before_submission=true。
+- 原 Session 与已挂载文件保持不变。没有代用户重新提交生成；由原对话使用原 request_id 和完全相同参数恢复。原会话多轮修改的成品效果仍待后续真实验收。

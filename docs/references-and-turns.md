@@ -56,6 +56,8 @@ v0.2 在原来的私有 Sites MCP 上增加参考图和多轮工具，沿用原�
 | `seedance_get_reference` | 查询本用户参考图状态 |
 | `seedance_continue_task` | 在根任务的原 Session 提交一轮修改 |
 
+0.2.1 对一种已确证的提交前失败提供恢复：仅当原轮从未持久记录任何消息发送边界、原 Session 为 idle 且完整历史没有 user.message 时，返回 `recoverable_before_submission=true`。此时可用完全相同参数再次调用 create_task，服务原子领取恢复权并复用原 Session；不是换编号或重建。已尝试发送、结果不明的失败继续禁止重发。
+
 旧的无参考图新建任务及历史查询继续兼容。音频/视频参考上传、结构化的时长/分辨率参数、完整的 Agent 权限交互并不在本次实现范围；不能宣称上游全部能力已解锁。
 
 ## 官方协议依据

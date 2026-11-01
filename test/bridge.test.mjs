@@ -1462,3 +1462,335 @@ test("MCP rejects UTF-8 bodies over 64 KiB with and without a Content-Length hea
     }
   }
 });
+
+test("malformed Files payloads produce safe structural diagnostics before any message is sent", async () => {
+  for (const payload of [{ data: {} }]) {
+    const env = setup();
+    let writes = 0;
+    const restore = mock(async (url, init) => {
+      if (url.includes("/files?")) return Response.json(payload);
+      if (url.endsWith("/events") && init.method === "POST") writes++;
+      return defaults(url, init);
+    });
+    try {
+      const created = await rpc(env, "seedance_create_task", input);
+      assert.match(created.error, /文件列表结构异常/);
+      assert.equal(writes, 0);
+      const outputs = await rpc(env, "seedance_get_outputs", {
+        request_id: input.request_id,
+      });
+      assert.match(outputs.error, /文件列表结构异常/);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("null Files responses are an empty list, not a completed generation", async () => {
+  const env = setup();
+  const upstream = backend();
+  const restore = mock(async (url, init = {}) => {
+    const parsed = new URL(String(url));
+    if (parsed.pathname === "/api/v3/files" && init.method !== "POST")
+      return Response.json(null);
+    return upstream.fetch(url, init);
+  });
+  try {
+    const created = await rpc(env, "seedance_create_task", input);
+    assert.equal(created.error, undefined);
+    assert.equal(created.phase, "submitted");
+    assert.equal(upstream.sends.length, 1);
+    const outputs = await rpc(env, "seedance_get_outputs", {
+      request_id: input.request_id,
+    });
+    assert.equal(outputs.error, undefined);
+    assert.deepEqual(outputs.files, []);
+    assert.equal(outputs.pending_registration, true);
+    const task = await rpc(env, "seedance_get_task", {
+      request_id: input.request_id,
+    });
+    assert.equal(task.turn_completed, false);
+  } finally {
+    restore();
+  }
+});
+
+// Create the exact recoverable shape through a failed pre-send request, not by
+// inventing a completed submission or dropping an existing turn's safeguards.
+async function recoverableRootFixture() {
+  const env = setup();
+  const upstream = backend();
+  const control = {
+    preparationFailure: true,
+    readCounts: { session: 0, history: 0 },
+    readyFrames: 0,
+    failRead: null,
+    beforeRead: null,
+    trace: [],
+  };
+  const restore = mock(async (rawUrl, init = {}) => {
+    const url = new URL(String(rawUrl));
+    if (
+      control.preparationFailure &&
+      url.pathname === "/api/v3/files" &&
+      init.method !== "POST"
+    ) {
+      return Response.json(
+        { error: { message: "Temporary failure before the first user event" } },
+        { status: 503 },
+      );
+    }
+    if (!control.preparationFailure) {
+      const kind = /\/sessions\/[^/]+$/.test(url.pathname)
+        ? "session"
+        : url.pathname.endsWith("/events") && init.method !== "POST"
+          ? "history"
+          : null;
+      if (kind) {
+        const pass = ++control.readCounts[kind];
+        control.trace.push({ kind, pass, readyFrames: control.readyFrames });
+        control.beforeRead?.(kind, pass, upstream);
+        if (control.failRead?.kind === kind && control.failRead.pass === pass) {
+          return Response.json(
+            { error: { message: "Read-only verification failed" } },
+            { status: 503 },
+          );
+        }
+      }
+      if (url.pathname.endsWith("/events/stream")) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              queueMicrotask(() => {
+                control.readyFrames++;
+                controller.enqueue(new TextEncoder().encode(": ready\n\n"));
+              });
+            },
+          }),
+        );
+      }
+    }
+    return upstream.fetch(rawUrl, init);
+  });
+  try {
+    const failed = await rpc(env, "seedance_create_task", input);
+    assert.ok(failed.error);
+    assert.equal(upstream.sessions.length, 1);
+    assert.equal(upstream.sends.length, 0);
+    const row = env.__db
+      .prepare("SELECT * FROM task_turns WHERE turn_key = ?")
+      .get(input.request_id);
+    assert.equal(row.phase, "needs_review");
+    for (const field of [
+      "message_hash",
+      "message_event_id",
+      "boundary_event_id",
+      "output_path",
+    ])
+      assert.equal(row[field], null);
+    control.preparationFailure = false;
+    return { env, upstream, control, restore, sid: "sesn-1" };
+  } catch (error) {
+    restore();
+    throw error;
+  }
+}
+
+test("a proven pre-submission failure resumes the same input in the existing Session", async () => {
+  const { env, upstream, control, restore, sid } =
+    await recoverableRootFixture();
+  try {
+    const task = await rpc(env, "seedance_get_task", {
+      request_id: input.request_id,
+    });
+    assert.equal(task.recoverable_before_submission, true);
+    control.readCounts = { session: 0, history: 0 };
+    control.trace = [];
+    const changed = await rpc(env, "seedance_create_task", {
+      ...input,
+      prompt: "Not the same requirement",
+    });
+    assert.ok(changed.error);
+    assert.equal(upstream.sends.length, 0);
+    const resumed = await rpc(env, "seedance_create_task", input);
+    assert.equal(resumed.phase, "submitted");
+    assert.equal(resumed.session_id, sid);
+    assert.equal(resumed.resumed_before_submission, true);
+    assert.equal(upstream.sessions.length, 1);
+    assert.equal(upstream.sends.length, 1);
+    assert.ok(upstream.sends[0].url.includes(`/sessions/${sid}/events`));
+    for (const kind of ["session", "history"]) {
+      const checks = control.trace.filter((step) => step.kind === kind);
+      assert.ok(
+        checks.length >= 2,
+        `${kind} must be checked before and after establishing the stream`,
+      );
+      assert.equal(checks[0].readyFrames, 0);
+      assert.ok(
+        checks[1].readyFrames >= 1,
+        "The second check must follow the ready frame",
+      );
+    }
+  } finally {
+    restore();
+  }
+});
+
+test("concurrent recovery claims send once and refuse a competing modification turn", async () => {
+  const { env, upstream, restore } = await recoverableRootFixture();
+  try {
+    const [first, second, competing] = await Promise.all([
+      rpc(env, "seedance_create_task", input),
+      rpc(env, "seedance_create_task", input),
+      rpc(env, "seedance_continue_task", modification()),
+    ]);
+    assert.ok(
+      [first, second].some((result) => result.resumed_before_submission),
+    );
+    assert.ok(competing.error);
+    assert.equal(upstream.sends.length, 1);
+    assert.equal(upstream.sessions.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("any non-null submission evidence disables root recovery, including empty strings", async () => {
+  for (const field of [
+    "message_hash",
+    "message_event_id",
+    "boundary_event_id",
+    "output_path",
+  ]) {
+    for (const value of ["existing-evidence", ""]) {
+      const { env, upstream, restore } = await recoverableRootFixture();
+      try {
+        env.__db
+          .prepare(`UPDATE task_turns SET ${field} = ? WHERE turn_key = ?`)
+          .run(value, input.request_id);
+        const task = await rpc(env, "seedance_get_task", {
+          request_id: input.request_id,
+        });
+        assert.notEqual(task.recoverable_before_submission, true, field);
+        const result = await rpc(env, "seedance_create_task", input);
+        assert.notEqual(result.resumed_before_submission, true, field);
+        assert.equal(upstream.sends.length, 0);
+        assert.equal(upstream.sessions.length, 1);
+      } finally {
+        restore();
+      }
+    }
+  }
+});
+
+test("pre-submission recovery refuses every non-idle Session status", async () => {
+  for (const status of [
+    "running",
+    "terminated",
+    "rescheduling",
+    "initializing",
+    "failed",
+    "upgrading",
+  ]) {
+    const { env, upstream, restore } = await recoverableRootFixture();
+    try {
+      upstream.status = status;
+      const task = await rpc(env, "seedance_get_task", {
+        request_id: input.request_id,
+      });
+      assert.notEqual(task.recoverable_before_submission, true, status);
+      const result = await rpc(env, "seedance_create_task", input);
+      assert.ok(result.error || result.phase === "needs_review", status);
+      assert.equal(upstream.sends.length, 0);
+      assert.equal(upstream.sessions.length, 1);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test("pre-submission recovery refuses a Session that already contains a user message", async () => {
+  const { env, upstream, restore } = await recoverableRootFixture();
+  try {
+    upstream.history.push({
+      id: "sevt-external-user",
+      type: "user.message",
+      content: [{ type: "text", text: "Already submitted elsewhere" }],
+    });
+    const task = await rpc(env, "seedance_get_task", {
+      request_id: input.request_id,
+    });
+    assert.notEqual(task.recoverable_before_submission, true);
+    const resumed = await rpc(env, "seedance_create_task", input);
+    assert.ok(resumed.error || resumed.phase === "needs_review");
+    assert.equal(upstream.sends.length, 0);
+    assert.equal(upstream.sessions.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("root recovery rechecks after SSE readiness and refuses an intervening message", async () => {
+  const { env, upstream, control, restore } = await recoverableRootFixture();
+  try {
+    control.beforeRead = (kind, pass, state) => {
+      if (kind === "history" && pass === 2)
+        state.history.push({
+          id: "sevt-racing-user",
+          type: "user.message",
+          content: [{ type: "text", text: "Intervening input" }],
+        });
+    };
+    const resumed = await rpc(env, "seedance_create_task", input);
+    assert.ok(resumed.error || resumed.phase === "needs_review");
+    assert.equal(upstream.sends.length, 0);
+    assert.ok(control.readyFrames >= 1);
+    assert.equal(upstream.sessions.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("root recovery does not send if either read-only verification pass fails", async () => {
+  for (const kind of ["session", "history"]) {
+    for (const pass of [1, 2]) {
+      const { env, upstream, control, restore } =
+        await recoverableRootFixture();
+      try {
+        control.failRead = { kind, pass };
+        const resumed = await rpc(env, "seedance_create_task", input);
+        assert.ok(
+          resumed.error || resumed.phase === "needs_review",
+          `${kind} check ${pass}`,
+        );
+        assert.equal(upstream.sends.length, 0);
+        assert.equal(upstream.sessions.length, 1);
+        if (pass === 2) assert.ok(control.readyFrames >= 1);
+      } finally {
+        restore();
+      }
+    }
+  }
+});
+
+test("ambiguous POST during root recovery is never automatically sent a second time", async () => {
+  const { env, upstream, restore } = await recoverableRootFixture();
+  try {
+    upstream.failSend = true;
+    const first = await rpc(env, "seedance_create_task", input);
+    assert.ok(first.error);
+    assert.equal(upstream.sends.length, 1);
+    const again = await rpc(env, "seedance_create_task", input);
+    assert.equal(again.reused, true);
+    assert.equal(again.phase, "needs_review");
+    assert.notEqual(again.resumed_before_submission, true);
+    assert.equal(upstream.sends.length, 1);
+    assert.equal(upstream.sessions.length, 1);
+    const task = await rpc(env, "seedance_get_task", {
+      request_id: input.request_id,
+    });
+    assert.notEqual(task.recoverable_before_submission, true);
+  } finally {
+    restore();
+  }
+});

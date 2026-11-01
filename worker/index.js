@@ -1,5 +1,5 @@
 const BASE = "https://ark.cn-beijing.volces.com/api/v3";
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const idSchema = { type: "string", minLength: 8, maxLength: 100 };
 const referencesSchema = {
@@ -513,7 +513,27 @@ async function listFiles(env, sid) {
       order: "asc",
     });
     if (after) q.set("after", after);
-    const r = await ark(env, `/files?${q}`);
+    // The live Files API returns JSON null when a Session has no outputs.
+    // It is an empty list, not evidence that any generation has completed.
+    const r = (await ark(env, `/files?${q}`)) ?? { data: [], has_more: false };
+    if (
+      !r ||
+      typeof r !== "object" ||
+      (r.data != null && !Array.isArray(r.data))
+    ) {
+      const kind = (value) =>
+        value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+      const keys = (value) =>
+        value && typeof value === "object"
+          ? Object.keys(value)
+              .filter((key) => /^[a-zA-Z_][a-zA-Z0-9_]{0,40}$/.test(key))
+              .slice(0, 12)
+              .join(",")
+          : "";
+      throw new SafeError(
+        `方舟文件列表结构异常（root=${kind(r)}; keys=${keys(r)}; data=${kind(r?.data)}; data_keys=${keys(r?.data)}）。请核验原任务，不要重复提交生成。`,
+      );
+    }
     for (const f of r.data || [])
       if (f.id && !seen.has(f.id)) {
         seen.add(f.id);
@@ -840,13 +860,106 @@ async function reserveTurn(env, owner, key, turnKey, hash) {
     );
   }
 }
-async function submitTurn(env, owner, j, turn, args, refs) {
+function hasNoSubmissionBoundary(turn) {
+  return (
+    turn?.message_hash === null &&
+    turn.message_event_id === null &&
+    turn.boundary_event_id === null &&
+    turn.output_path === null
+  );
+}
+function isUnsubmittedRoot(j, turn) {
+  return (
+    typeof j.session_id === "string" &&
+    j.session_id.startsWith("sesn-") &&
+    turn?.turn_key === j.request_key &&
+    turn.phase === "needs_review" &&
+    hasNoSubmissionBoundary(turn)
+  );
+}
+async function assertUnsubmittedSession(env, j, knownEvents) {
+  const [session, events] = await Promise.all([
+    ark(env, `/sessions/${encodeURIComponent(j.session_id)}`),
+    knownEvents ? Promise.resolve(knownEvents) : history(env, j.session_id),
+  ]);
+  if (
+    session.status !== "idle" ||
+    events.some((event) => event.type === "user.message")
+  )
+    throw new SafeError(
+      "原Session不是空闲且从未接收用户消息的会话，不能恢复发送；请继续核验原任务。",
+    );
+}
+async function recoverBeforeSubmission(args, env, owner, j, turn, ready) {
+  if (!isUnsubmittedRoot(j, turn)) return turnResult(j, turn, true);
+  const claim = await run(
+    env,
+    "UPDATE task_turns SET phase = ? WHERE owner = ? AND request_key = ? AND turn_key = ? AND prompt_hash = ? AND phase = ? AND message_hash IS NULL AND message_event_id IS NULL AND boundary_event_id IS NULL AND output_path IS NULL",
+    "reserved",
+    owner,
+    j.request_key,
+    j.request_key,
+    turn.prompt_hash,
+    "needs_review",
+  );
+  if (!claim.meta.changes)
+    return turnResult(
+      j,
+      await getTurn(env, owner, j.request_key, j.request_key),
+      true,
+    );
+  try {
+    // The same partial unique index continues to hold the task's active slot.
+    // Recovery does not create a session or claim an already-sent operation.
+    await assertUnsubmittedSession(env, j);
+    const submitted = await submitTurn(
+      env,
+      owner,
+      j,
+      { ...turn, phase: "reserved" },
+      args,
+      ready,
+      true,
+    );
+    return { ...submitted, reused: true, resumed_before_submission: true };
+  } catch (e) {
+    // Only release our unsent claim back to review. Never clear a persisted
+    // sending boundary or make an ambiguous POST eligible for recovery.
+    await run(
+      env,
+      "UPDATE task_turns SET phase = ? WHERE owner = ? AND request_key = ? AND turn_key = ? AND phase = ? AND message_hash IS NULL AND message_event_id IS NULL AND boundary_event_id IS NULL AND output_path IS NULL",
+      "needs_review",
+      owner,
+      j.request_key,
+      j.request_key,
+      "reserved",
+    );
+    throw new SafeError(
+      `原任务恢复未完成（request_id=${j.request_key}, session_id=${j.session_id}）。${e instanceof SafeError ? e.message : "读取或存储异常。"} 请查询原编号，不能换号重发。`,
+    );
+  }
+}
+async function submitTurn(
+  env,
+  owner,
+  j,
+  turn,
+  args,
+  refs,
+  verifyUnsubmitted = false,
+) {
   let stream;
   try {
     const mounted = await mountReferences(env, owner, j, refs);
     stream = await openReady(env, j.session_id);
     // Establish the stream first; snapshot history and outputs before the write.
     const events = await history(env, j.session_id);
+    if (verifyUnsubmitted) {
+      await assertUnsubmittedSession(env, j, events);
+      const current = await getTurn(env, owner, j.request_key, turn.turn_key);
+      if (current?.phase !== "reserved" || !hasNoSubmissionBoundary(current))
+        throw new SafeError("恢复领取状态已改变，不能重复发送原需求。");
+    }
     const baseline = await listFiles(env, j.session_id);
     const outputPath = `/mnt/session/outputs/${j.request_key}/${turn.turn_key}/`;
     const resourceText = mounted.length
@@ -950,7 +1063,10 @@ async function createTask(args, env, owner) {
     const old = await job(env, owner, key);
     if (old.prompt_hash !== hash)
       throw new SafeError("该 request_id 已绑定另一需求；不允许覆盖。");
-    return turnResult(old, await getTurn(env, owner, key, key), true);
+    const turn = await getTurn(env, owner, key, key);
+    if (turn?.prompt_hash !== undefined && turn.prompt_hash !== hash)
+      throw new SafeError("该轮次已绑定另一需求；不允许覆盖。");
+    return recoverBeforeSubmission(args, env, owner, old, turn, ready);
   }
   let sid;
   try {
@@ -1203,6 +1319,10 @@ async function call(name, args, env, owner) {
     const state = turn
       ? await updateTurn(env, owner, j, turn, session, events)
       : summarize(events);
+    const recoverableBeforeSubmission =
+      isUnsubmittedRoot(j, turn) &&
+      session.status === "idle" &&
+      !events.some((event) => event.type === "user.message");
     return {
       request_id: j.request_key,
       turn_id: turn?.turn_key || j.request_key,
@@ -1212,6 +1332,13 @@ async function call(name, args, env, owner) {
       usage: session.usage,
       usage_scope: "session_cumulative",
       ...state,
+      recoverable_before_submission: recoverableBeforeSubmission,
+      ...(recoverableBeforeSubmission
+        ? {
+            instruction:
+              "已证实原Session空闲且从未接收用户消息，可用原request_id和完全相同参数调用seedance_create_task恢复原会话；不是重建或重新生成，禁止换号。",
+          }
+        : {}),
     };
   }
   throw new SafeError("未知工具。");
