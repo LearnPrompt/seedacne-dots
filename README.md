@@ -40,7 +40,7 @@ Dots → 自己的私有 MCP 插件 → 方舟 Managed Agents API → Session �
 
 - 模板依赖 **Sites 鉴权网关**及其注入的可信 `oai-authenticated-user-id`。不能原样部署成其他平台的公共服务；其他平台必须实现等价的认证、授权和用户隔离。
 - 默认使用方舟中国北京 API；其他地域未验证，不能只换域名就视作支持。
-- 当前支持**文字需求创建任务、查询状态、获取产物**。参考素材上传/挂载、会话续接与多轮编辑尚未实现。
+- v0.2 支持**文字创建任务、参考图上传/挂载、原 Session 多轮修改、按轮查询状态和产物**。参考输入暂限 JPEG、PNG、WebP，单图最多 10 MiB，每轮最多 6 张；音频/视频参考上传和独立生成参数尚未实现。
 - 一次 Managed Agent 任务可能包含多次模型或工具调用；一次提交不是固定总价，也不构成费用硬上限。
 - 使用名称 Seedacne；控制台及 API 可能使用 Seedance，代码标识按官方实际名称保留。
 
@@ -51,7 +51,8 @@ Dots → 自己的私有 MCP 插件 → 方舟 Managed Agents API → Session �
 | `ARK_API_KEY` | 仅放服务端秘密变量；不得进入源码、日志、截图、工具参数或前端 |
 | `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` | 自己账号创建或安全复用的真实资源 |
 | `GENERATION_ENABLED` | 初始 `false`；只读验证后按授权启用 |
-| `DB` | Sites D1 绑定；部署时应用 `drizzle/0000_jobs.sql` |
+| `REFERENCE_ALLOWED_HOSTS` | 客户端文件临时下载 URL 的精确主机名，逗号分隔；初始留空，观察真实 host 后配置，不能填完整签名 URL |
+| `DB` | Sites D1 绑定；部署时按顺序应用 `drizzle/` 的全部迁移（保留已有任务） |
 
 创建个人实例时，从模板复制到独立目录，排除 `.git`、构建产物与凭据；保留本仓库原 Git remote。`.openai/hosting.json` 不含私人项目 ID；仅在实例目录中配置自己的 Site 返回的真实 ID。个人部署配置不能推回本公开仓库。部署按当前 Sites 技能与工具执行。
 
@@ -68,8 +69,13 @@ npm run check
 | MCP 工具 | 行为 |
 |---|---|
 | `seedance_connection_status` | 配置检查；`verify_remote=true` 时只读查询指定 Agent 和 Environment |
-| `seedance_create_task` | 付费创建任务；以稳定 `request_id` 持久防重 |
-| `seedance_get_task` | 查询原任务状态、事件、停止原因和工具错误 |
-| `seedance_get_outputs` | 取得已注册产物及有时效的下载地址 |
+| `seedance_upload_reference` | 接收宿主选择的附件并上传方舟；稳定 `reference_id` 防重，不启动素材生成 |
+| `seedance_get_reference` | 查询本用户参考图的上传状态与非敏感元数据 |
+| `seedance_create_task` | 新建任务，可带 `reference_ids`；稳定 `request_id` 持久防重 |
+| `seedance_continue_task` | 同一任务的原 Session 继续修改；每次修改使用新的稳定 `turn_id` |
+| `seedance_get_task` | 查询指定轮或默认最新轮的状态、事件、停止原因和工具错误 |
+| `seedance_get_outputs` | 获取指定轮或默认最新轮的产物；不以旧文件冒充修改结果 |
+
+参考图与多轮操作见 [v0.2 使用说明](docs/references-and-turns.md)；升级见 [变更记录](CHANGELOG.md)。工具曝光、线上上传、原 Session 修改和 Dots 附件透传分别验收，实际证据见 [验证记录](docs/validation-v0.2.md)。
 
 异常处理见 [排障说明](docs/troubleshooting.md)。正式接入前核对 [方舟视觉创作文档](https://docs.volcengine.com/docs/ark/visual-creation-agent?lang=zh)、[Dots 文档](https://learn.chatgpt.com/docs/dots)、[插件快速开始](https://developers.openai.com/plugins/quickstart)与 [MCP 服务文档](https://developers.openai.com/plugins/build/mcp-server)。
