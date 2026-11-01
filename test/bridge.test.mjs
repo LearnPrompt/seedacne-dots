@@ -276,3 +276,135 @@ test("output discovery returns only actual registered media", async () => {
     restore();
   }
 });
+test("output discovery follows the official has_more cursor", async () => {
+  const env = setup();
+  const pages = [];
+  const restore = mock(async (u, i) => {
+    if (u.includes("/files?")) {
+      const after = new URL(u).searchParams.get("after");
+      pages.push(after);
+      return Response.json(
+        after
+          ? {
+              data: [
+                {
+                  id: "f2",
+                  filename: "second.mp4",
+                  mime_type: "video/mp4",
+                  status: "active",
+                  download_url: "https://example.com/second",
+                },
+              ],
+              last_id: "f2",
+              has_more: false,
+            }
+          : {
+              data: [
+                {
+                  id: "f1",
+                  filename: "first.jpg",
+                  mime_type: "image/jpeg",
+                  status: "active",
+                  download_url: "https://example.com/first",
+                },
+              ],
+              last_id: "f1",
+              has_more: true,
+            },
+      );
+    }
+    return defaults(u, i);
+  });
+  try {
+    await rpc(env, "seedance_create_task", input);
+    const r = await rpc(env, "seedance_get_outputs", {
+      request_id: input.request_id,
+    });
+    assert.deepEqual(pages, [null, "f1"]);
+    assert.deepEqual(
+      r.files.map((x) => x.id),
+      ["f1", "f2"],
+    );
+  } finally {
+    restore();
+  }
+});
+test("unfinished or undownloadable media is reported, not delivered", async () => {
+  const env = setup();
+  const restore = mock(async (u, i) => {
+    if (u.includes("/files?"))
+      return Response.json({
+        data: [
+          {
+            id: "f1",
+            filename: "done.mp4",
+            mime_type: "video/mp4",
+            status: "active",
+            download_url: "https://example.com/done",
+          },
+          {
+            id: "f2",
+            filename: "pending.mp4",
+            mime_type: "video/mp4",
+            status: "processing",
+          },
+          {
+            id: "f3",
+            filename: "broken.mp4",
+            mime_type: "video/mp4",
+            status: "failed",
+            download_url: "https://example.com/broken",
+          },
+        ],
+        has_more: false,
+      });
+    return defaults(u, i);
+  });
+  try {
+    await rpc(env, "seedance_create_task", input);
+    const r = await rpc(env, "seedance_get_outputs", {
+      request_id: input.request_id,
+    });
+    assert.deepEqual(
+      r.files.map((x) => x.id),
+      ["f1"],
+    );
+    assert.deepEqual(r.not_ready, [
+      { id: "f2", filename: "pending.mp4", status: "processing" },
+      { id: "f3", filename: "broken.mp4", status: "failed" },
+    ]);
+  } finally {
+    restore();
+  }
+});
+test("body limit admits the declared maximum prompt in Chinese", async () => {
+  const env = setup();
+  env.GENERATION_ENABLED = "false";
+  const post = (prompt) => {
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "seedance_create_task",
+        arguments: { ...input, prompt, output_kind: "video" },
+      },
+    });
+    return worker.fetch(
+      new Request("https://test/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(new TextEncoder().encode(body).length),
+          "oai-authenticated-user-id": "user-a",
+        },
+        body,
+      }),
+      env,
+    );
+  };
+  const atLimit = await post("奶".repeat(12000));
+  assert.equal(atLimit.status, 200);
+  assert.match((await atLimit.json()).result.content[0].text, /尚未启用/);
+  assert.equal((await post("奶".repeat(14000))).status, 413);
+});

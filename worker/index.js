@@ -38,7 +38,7 @@ const tools = [
   {
     name: "seedance_get_task",
     description:
-      "查询本用户任务的方舟状态、完整回复和停止原因；idle 本身不等于创作成功。",
+      "查询本用户任务的方舟状态、最近 5 条回复和停止原因；idle 本身不等于创作成功。",
     inputSchema: {
       type: "object",
       properties: { request_id: { type: "string" } },
@@ -81,6 +81,8 @@ const result = (x) => ({
   content: [{ type: "text", text: JSON.stringify(x) }],
 });
 const required = ["ARK_API_KEY", "ARK_AGENT_ID", "ARK_ENVIRONMENT_ID"];
+// Fits a 12,000-character prompt at 3 UTF-8 bytes per CJK character plus the JSON-RPC envelope.
+const MAX_BODY = 40000;
 function check(env) {
   const missing = required.filter((k) => !env[k]);
   if (missing.length)
@@ -369,28 +371,40 @@ async function call(name, args, env, owner) {
       };
     if (name === "seedance_get_outputs") {
       const files = [];
-      let page = "";
+      let after = "";
       for (let i = 0; i < 20; i++) {
         const q = new URLSearchParams({ scope_id: j.session_id });
-        if (page) q.set("page", page);
+        if (after) q.set("after", after);
         const f = await ark(env, `/files?${q}`);
         files.push(...(f.data || []));
-        if (!f.next_page)
+        if (!f.has_more) {
+          const media = files.filter((x) =>
+            /^(image|video)\//.test(x.mime_type || ""),
+          );
+          const ready = (x) =>
+            (!x.status || x.status === "active") && !!x.download_url;
           return {
             request_id: j.request_key,
             session_id: j.session_id,
-            files: files
-              .filter((x) => /^(image|video)\//.test(x.mime_type || ""))
+            files: media.filter(ready).map((x) => ({
+              id: x.id,
+              filename: x.filename,
+              mime_type: x.mime_type,
+              download_url: x.download_url,
+            })),
+            not_ready: media
+              .filter((x) => !ready(x))
               .map((x) => ({
                 id: x.id,
                 filename: x.filename,
-                mime_type: x.mime_type,
-                download_url: x.download_url,
+                status: x.status,
               })),
             instruction:
-              "下载地址有时效，请及时下载；未返回预期文件时继续查询。",
+              "下载地址有时效，请及时下载；not_ready 里的文件尚不可交付。未返回预期文件时继续查询。",
           };
-        page = f.next_page;
+        }
+        if (!f.last_id) throw new SafeError("文件分页缺少游标，需人工核验。");
+        after = f.last_id;
       }
       throw new SafeError("文件分页超过查询上限。");
     }
@@ -478,12 +492,12 @@ export default {
         return new Response(null, { status: 405, headers: { Allow: "POST" } });
       if (request.method !== "POST")
         return new Response(null, { status: 405, headers: { Allow: "POST" } });
-      if (Number(request.headers.get("content-length") || 0) > 20000)
+      if (Number(request.headers.get("content-length") || 0) > MAX_BODY)
         return json({ error: "Request too large" }, 413);
       let body;
       try {
         const raw = await request.text();
-        if (raw.length > 20000)
+        if (raw.length > MAX_BODY)
           return json({ error: "Request too large" }, 413);
         body = JSON.parse(raw);
       } catch {
