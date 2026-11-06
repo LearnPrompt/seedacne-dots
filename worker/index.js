@@ -1,5 +1,5 @@
 const BASE = "https://ark.cn-beijing.volces.com/api/v3";
-const VERSION = "0.2.1";
+const VERSION = "0.2.2";
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const idSchema = { type: "string", minLength: 8, maxLength: 100 };
 const referencesSchema = {
@@ -1186,6 +1186,16 @@ async function continueTask(args, env, owner) {
   if (!reserved.inserted) return turnResult(j, reserved.turn, true);
   return submitTurn(env, owner, j, reserved.turn, args, ready);
 }
+// Files lists processing/failed outputs too; only active (or status-less) files are deliverable.
+const isReady = (f) => !f.status || f.status === "active";
+function deliverable(files) {
+  return {
+    files: files.filter(isReady).map(outputFile),
+    not_ready: files
+      .filter((f) => !isReady(f))
+      .map((f) => ({ id: f.id, filename: f.filename, status: f.status })),
+  };
+}
 function outputFile(f) {
   return {
     id: f.id,
@@ -1200,7 +1210,7 @@ async function outputsForTurn(env, owner, j, turn, allFiles) {
   const media = allFiles.filter((f) =>
     /^(image|video)\//.test(f.mime_type || ""),
   );
-  if (!turn) return { files: media.map(outputFile), legacy_unscoped: true };
+  if (!turn) return { ...deliverable(media), legacy_unscoped: true };
   const baseline = new Set(JSON.parse(turn.base_file_ids || "[]"));
   const known = new Set(JSON.parse(turn.output_file_ids || "[]"));
   const newest = await getTurn(env, owner, j.request_key);
@@ -1235,7 +1245,7 @@ async function outputsForTurn(env, owner, j, turn, allFiles) {
     );
   }
   return {
-    files: scoped.map(outputFile),
+    ...deliverable(scoped),
     pending_registration: scoped.length === 0,
     attribution_uncertain: candidates.some((f) => !scoped.includes(f)),
     output_path: turn.output_path,
@@ -1310,7 +1320,8 @@ async function call(name, args, env, owner) {
           turn,
           await listFiles(env, j.session_id),
         )),
-        instruction: "下载地址有时效，请及时下载；仅当前轮产物能用于本轮交付。",
+        instruction:
+          "下载地址有时效，请及时下载；仅当前轮产物能用于本轮交付；not_ready 中的文件仍在处理或已失败，不能交付。",
       };
     const [session, events] = await Promise.all([
       ark(env, `/sessions/${encodeURIComponent(j.session_id)}`),

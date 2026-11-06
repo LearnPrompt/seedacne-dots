@@ -1,5 +1,9 @@
 # 变更记录
 
+## 0.2.2
+
+- `seedance_get_outputs` 只把 `status` 为 `active`（或上游未返回 `status`）的文件放进 `files`；`processing`、`failed` 的媒体文件改列在 `not_ready`，不再当作可交付产物。按轮归属与 `pending_registration` 含义不变。
+
 ## 0.2.1
 
 - 兼容线上 Files API 在 Session 尚无产物时返回整个 JSON `null`，避免提交前读取空列表触发异常；空列表不表示生成完成。

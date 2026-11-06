@@ -1141,6 +1141,40 @@ test("latest-turn outputs exclude previous media and earlier turn queries exclud
   }
 });
 
+test("processing or failed media is reported as not ready, never delivered", async () => {
+  const env = setup();
+  const upstream = backend();
+  const restore = mock(upstream.fetch);
+  try {
+    await rpc(env, "seedance_create_task", input);
+    upstream.complete();
+    const path = (name) => `${input.request_id}/${input.request_id}/${name}`;
+    const done = mediaFile("file-done", path("done.png"));
+    const pending = {
+      ...mediaFile("file-pending", path("pending.png")),
+      status: "processing",
+      download_url: undefined,
+    };
+    const broken = {
+      ...mediaFile("file-broken", path("broken.png")),
+      status: "failed",
+    };
+    upstream.files = [done, pending, broken];
+    const r = await rpc(env, "seedance_get_outputs", {
+      request_id: input.request_id,
+    });
+    assert.deepEqual(
+      r.files.map((file) => file.id),
+      [done.id],
+    );
+    assert.deepEqual(r.not_ready, [
+      { id: pending.id, filename: pending.filename, status: "processing" },
+      { id: broken.id, filename: broken.filename, status: "failed" },
+    ]);
+  } finally {
+    restore();
+  }
+});
 test("Files pagination follows after/has_more and preserves every registered media file", async () => {
   const env = setup();
   const upstream = backend();
