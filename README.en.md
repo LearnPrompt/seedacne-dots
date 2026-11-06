@@ -56,7 +56,7 @@ Every item here is required. It is worth a minute now.
 
 | You need | Requirement | Official docs |
 |---|---|---|
-| **OpenAI Dots** | Pro 100 / 200 / 500 (18+, outside the EEA, UK and Switzerland), Business Premium, or Enterprise with an admin enabling it. Rolling out gradually, so eligible accounts may not see it yet | [Dots](https://learn.chatgpt.com/docs/dots) |
+| **OpenAI Dots** | Pro 100 / 200 / 500 (18+, outside the EEA, UK and Switzerland); Business Premium (subject to workspace eligibility); eligible Enterprise, Edu and Healthcare workspaces (excluding UAE data or inference residency; on by default from November 18, 2026, admin-enabled per role before then). Rolling out gradually, so eligible accounts may not see it yet | [Dots](https://learn.chatgpt.com/docs/dots) |
 | **Sites** | Able to create a private site and generate its private MCP plugin. The template relies on the Sites auth gateway | [Sites](https://learn.chatgpt.com/docs/sites) |
 | **Volcengine Ark account** | Able to create a Seedance Managed Agent. Available models depend on the console's creation page. Generation is billed by usage | [Visual creation agent (Chinese)](https://docs.volcengine.com/docs/ark/visual-creation-agent?lang=zh) |
 | **Codex** | With terminal and browser access, or computer use | [Plugin quickstart](https://developers.openai.com/plugins/quickstart) |
@@ -71,7 +71,7 @@ Every item here is required. It is worth a minute now.
 
 **Step 3: test in Dots.** Start with a read-only connection check that reads your own agent and environment. After you explicitly authorize it, submit one test, keep querying with the same `request_id`, then download the actual MP4 and check its specs and picture. Do not switch IDs after a timeout, or you risk paying twice.
 
-A ready-made test prompt is in the [demo write-up](docs/demo.md) (Chinese).
+A test prompt is in the [demo write-up](docs/demo.md) (Chinese); replace its `request_id` with a new one of your own before using it.
 
 ---
 
@@ -92,7 +92,7 @@ A single 5-second milk tea video, from the Dots request to the delivered MP4, wi
 
 Full measurements and SHA-256 hashes are in the [demo write-up](docs/demo.md) and [media metadata](assets/media-metadata.json).
 
-v0.2 was also tested live: a reference image upload and two real editing rounds in one Session. Both features passed, and picture quality still has flaws. See the [validation record](docs/validation-v0.2.md) (Chinese).
+v0.2 was also tested live: a reference image upload and one follow-up editing round in the same Session. That round used a code mask without a generative image model, so it proves the continuation path works, not editing quality, and the picture still has flaws. See the [validation record](docs/validation-v0.2.md) (Chinese).
 
 ---
 
@@ -121,7 +121,7 @@ flowchart LR
 ## 🚧 Limits
 
 - **Sites only.** The template trusts the gateway-injected `oai-authenticated-user-id` header, which we could not find in public docs. Any other platform needs equivalent authentication and user isolation. Deployed straight to the public internet, identities can be forged.
-- **Beijing region only.** It defaults to the Ark China Beijing API. Other regions are unverified, and changing the domain is not enough.
+- **Beijing region only.** The Ark China Beijing API address is hardcoded. Other regions are unverified, and changing the domain is not enough.
 - **Reference images: JPEG, PNG and WebP only.** Up to 10 MiB each and 6 per round. Audio or video references and dedicated duration or resolution parameters are not built. The first upload is blocked and reports the download hostname; verify it, then add it to `REFERENCE_ALLOWED_HOSTS`.
 - **No way forward from `requires_action`.** The tool reports it honestly, and you follow up in Ark yourself.
 - **12,000-character prompt limit.** Anything longer is rejected without submitting a task.

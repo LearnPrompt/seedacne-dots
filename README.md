@@ -56,7 +56,7 @@ Seedacne 是本项目对火山方舟 **Seedance Managed Agent** 的叫法，控�
 
 | 需要 | 要求 | 官方说明 |
 |---|---|---|
-| **OpenAI Dots** | Pro 100 / 200 / 500（18 岁以上，不含欧洲经济区、英国、瑞士），Business Premium，或由管理员开启的 Enterprise。正在逐步开放，符合条件也可能暂时看不到 | [Dots 文档](https://learn.chatgpt.com/docs/dots) |
+| **OpenAI Dots** | Pro 100 / 200 / 500（18 岁以上，不含欧洲经济区、英国、瑞士）；Business Premium（视工作区资格）；合格的 Enterprise、Edu、Healthcare 工作区（数据或推理驻留在阿联酋的除外；2026 年 11 月 18 日起默认开启，此前需管理员为角色开启）。正在逐步开放，符合条件也可能暂时看不到 | [Dots 文档](https://learn.chatgpt.com/docs/dots) |
 | **Sites** | 能创建私有站点并生成私有 MCP 插件。模板依赖它的鉴权网关 | [Sites 文档](https://learn.chatgpt.com/docs/sites) |
 | **火山方舟账号** | 能创建 Seedance Managed Agent。可选模型以控制台创建页为准，生成按量计费 | [视觉创作 Agent 文档](https://docs.volcengine.com/docs/ark/visual-creation-agent?lang=zh) |
 | **Codex** | 能操作终端和浏览器，或有 computer use | [插件快速开始](https://developers.openai.com/plugins/quickstart) |
@@ -71,7 +71,7 @@ Seedacne 是本项目对火山方舟 **Seedance Managed Agent** 的叫法，控�
 
 **第三步，在 Dots 实测。** 先做只读连接检查，确认读得到你自己的 Agent 和 Environment。你明确授权后再提交一次测试，保持同一个 `request_id` 查询，下载实际 MP4 检查参数和画面。超时也不换编号重发，否则可能重复扣费。
 
-测试提示词可以直接抄[案例文档](docs/demo.md)里的版本。
+测试提示词在[案例文档](docs/demo.md)里，把 `request_id` 换成你自己的新编号再用。
 
 ---
 
@@ -92,7 +92,7 @@ Seedacne 是本项目对火山方舟 **Seedance Managed Agent** 的叫法，控�
 
 完整测量和 SHA-256 见[实测案例](docs/demo.md)与[媒体元数据](assets/media-metadata.json)。
 
-v0.2 另外实测了参考图上传，以及在同一个 Session 里的两轮真实修改，功能都已验收，图片质量仍有偏差，见[验证记录](docs/validation-v0.2.md)。
+v0.2 另外实测了参考图上传，以及在同一个 Session 里接着改一轮。这一轮修改用的是代码蒙版，没有调用生成式改图，所以只证明续接这条路通了，图片质量仍有偏差，见[验证记录](docs/validation-v0.2.md)。
 
 ---
 
@@ -121,7 +121,7 @@ flowchart LR
 ## 🚧 边界
 
 - **只能跑在 Sites 上。** 模板信任网关注入的 `oai-authenticated-user-id`，这个请求头目前查不到公开文档。换平台必须自己实现等价的认证和用户隔离，直接部署到公网，身份可以被伪造。
-- **只有北京地域验证过。** 默认使用方舟中国北京 API，换地域不是改个域名的事。
+- **只有北京地域验证过。** 接口地址写死为方舟中国北京 API，换地域不是改个域名的事。
 - **参考图只收 JPEG、PNG、WebP。** 单图最多 10 MiB，每轮最多 6 张；音频、视频参考和独立的时长、分辨率参数还没做。首次传图会被拦截并显示下载域名，核验后加进 `REFERENCE_ALLOWED_HOSTS`。
 - **Agent 停在 `requires_action` 时无法接着处理。** 工具会如实报告，后续要自己去方舟排查。
 - **单次提示词上限 12,000 字。** 超过时任务不会提交。
