@@ -1,6 +1,6 @@
 # 从零把自己的 Seedacne Managed Agent 接到 Dots
 
-把下面“主提示词”发给**有终端、浏览器或 computer use 能力的 Codex**。如果同时提供《Seedacne-Dots-可分享MCP模板.zip》，Codex 可以检查并复用模板；没有附件时，需要自行实现桥接服务。完成后，在 Dots 里调用你自己的私有插件。
+把下面“主提示词”发给**有终端、浏览器或 computer use 能力的 Codex**。Codex 可以检查并复用[本仓库的模板](../README.md)，不必自行实现桥接服务。完成后，在 Dots 里调用你自己的私有插件。
 
 本流程已完成一次账号实配与视频首测，但不保证所有账号都具备相同资格、界面、模型和工具。不要使用他人的 Agent、API Key 或私人 MCP 地址。
 
@@ -93,10 +93,10 @@ https://developers.openai.com/plugins/build/mcp-server
 
 ## 这次实配可证明什么
 
-- 我们实际完成了专用 Agent、云环境、受限 Key、私有 MCP 与插件连接。
-- 只读调用成功读取 Agent 与 Environment；10 项离线测试通过。
+- 维护者账号实际完成了专用 Agent、云环境、受限 Key、私有 MCP 与插件连接。
+- 只读调用成功读取 Agent 与 Environment；当时 v0.1 的 10 项离线测试通过。
 - 用户随后在 Dots 中完成了奶茶视频首测并提供截图。本轮又通过原任务插件查询核到 `end_turn`、任务结束、无工具错误。没有再次生成。
 - 本仓库收录用户提供的成片与对话截图，独立使用 ffprobe 核到 720×1280、24fps、容器时长 5.056 秒，并通过 ffmpeg 完整解码。截图记录奶感偏弱、杯身略收底等偏差；本次没有重新生成或试听音频。这证明了实际交付链路跑通，不证明视觉需求全部达标。详见 [实测案例](demo.md)。
 - 视频生成计费明细未取得；Agent token/运行时长不等于完整视频账单，不据此推算固定成本。
 
-**命名说明：**此份 Brief 的对外名称为 Seedacne Managed Agent；控制台、模型、工具和 API 中可能仍使用 Seedance。保留官方实际标识，不自行改写可执行字段。
+**命名说明：**本项目的对外名称为 Seedacne Managed Agent；控制台、模型、工具和 API 中可能仍使用 Seedance。保留官方实际标识，不自行改写可执行字段。

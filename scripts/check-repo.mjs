@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const excluded = new Set([".git", "dist", "node_modules", ".wrangler"]);
-const binary = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp4"]);
+const binary = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4"]);
 const findings = [];
 const privatePatterns = [
   /(?:ghp_|github_pat_)[A-Za-z0-9_]{25,}/,
