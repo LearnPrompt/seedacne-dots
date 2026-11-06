@@ -8,7 +8,7 @@
 
 [![Check](https://img.shields.io/github/actions/workflow/status/LearnPrompt/seedacne-dots/ci.yml?branch=main&style=for-the-badge&label=Check&color=5F7A3A)](https://github.com/LearnPrompt/seedacne-dots/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/Code-MIT-5F7A3A?style=for-the-badge)](./LICENSE)
-[![Tools](https://img.shields.io/badge/MCP_Tools-4-5F7A3A?style=for-the-badge)](#%EF%B8%8F-工作原理)
+[![Tools](https://img.shields.io/badge/MCP_Tools-7-5F7A3A?style=for-the-badge)](#%EF%B8%8F-工作原理)
 
 ![Codex](https://img.shields.io/badge/Setup_by-Codex-2B2B2B?style=flat-square)
 ![OpenAI Dots](https://img.shields.io/badge/OpenAI-Dots-2B2B2B?style=flat-square)
@@ -17,7 +17,7 @@
 
 </div>
 
-这个仓库是一份交给 Codex 执行的接入模板。把下面那段话发给 Codex，它会帮你开好自己的火山方舟 Agent，部署一个只有你能访问的私有 MCP 服务，再把它接进 OpenAI Dots。之后你在 Dots 对话里提需求、查进度、拿成品。
+这个仓库是一份交给 Codex 执行的接入模板。把下面那段话发给 Codex，它会帮你开好自己的火山方舟 Agent，部署一个只有你能访问的私有 MCP 服务，再把它接进 OpenAI Dots。之后你在 Dots 对话里提需求、附参考图、在原会话里接着改，再拿回成品。
 
 Seedacne 是本项目对火山方舟 **Seedance Managed Agent** 的叫法，控制台、API 和代码标识里看到的都是 Seedance。这是非官方示例，账号、Key、费用都是你自己的，仓库里不含任何人的凭据，也不提供共用服务。
 
@@ -92,6 +92,8 @@ Seedacne 是本项目对火山方舟 **Seedance Managed Agent** 的叫法，控�
 
 完整测量和 SHA-256 见[实测案例](docs/demo.md)与[媒体元数据](assets/media-metadata.json)。
 
+v0.2 另外实测了参考图上传，以及在同一个 Session 里的两轮真实修改，功能都已验收，图片质量仍有偏差，见[验证记录](docs/validation-v0.2.md)。
+
 ---
 
 ## ⚙️ 工作原理
@@ -107,9 +109,12 @@ flowchart LR
 | MCP 工具 | 做什么 | 费用 |
 |---|---|---|
 | `seedance_connection_status` | 检查配置；`verify_remote=true` 时只读查询你的 Agent 和 Environment | 不生成 |
-| `seedance_create_task` | 提交一次任务，用 `request_id` 在 D1 里持久防重 | **付费** |
-| `seedance_get_task` | 查原任务的状态、停止原因、工具错误和最近消息 | 不生成 |
-| `seedance_get_outputs` | 取已注册的产物和有时效的下载地址 | 不生成 |
+| `seedance_upload_reference` | 把你在 Dots 里附的图上传到方舟，用 `reference_id` 防重 | 不生成 |
+| `seedance_get_reference` | 查参考图的上传状态 | 不生成 |
+| `seedance_create_task` | 新建任务，可带 `reference_ids`，用 `request_id` 在 D1 里持久防重 | **付费** |
+| `seedance_continue_task` | 在原 Session 里接着改一轮，每轮用新的 `turn_id` | **付费** |
+| `seedance_get_task` | 查指定轮（默认最新一轮）的状态、停止原因和工具错误 | 不生成 |
+| `seedance_get_outputs` | 取指定轮的产物和有时效的下载地址，旧文件不算新结果 | 不生成 |
 
 ---
 
@@ -117,7 +122,7 @@ flowchart LR
 
 - **只能跑在 Sites 上。** 模板信任网关注入的 `oai-authenticated-user-id`，这个请求头目前查不到公开文档。换平台必须自己实现等价的认证和用户隔离，直接部署到公网，身份可以被伪造。
 - **只有北京地域验证过。** 默认使用方舟中国北京 API，换地域不是改个域名的事。
-- **只支持文字创建。** 能提交任务、查状态、取产物。参考素材上传、会话续接和多轮编辑还没做。
+- **参考图只收 JPEG、PNG、WebP。** 单图最多 10 MiB，每轮最多 6 张；音频、视频参考和独立的时长、分辨率参数还没做。首次传图会被拦截并显示下载域名，核验后加进 `REFERENCE_ALLOWED_HOSTS`。
 - **Agent 停在 `requires_action` 时无法接着处理。** 工具会如实报告，后续要自己去方舟排查。
 - **单次提示词上限 12,000 字。** 超过时任务不会提交。
 
@@ -131,14 +136,15 @@ flowchart LR
 npm run check
 ```
 
-这条命令跑 13 项离线测试、构建、产物检查、相对链接与隐私扫描，不访问方舟，也不生成素材。
+这条命令跑全部离线测试、构建、产物检查、相对链接与隐私扫描，不访问方舟，也不生成素材。
 
 | 配置 | 用途 |
 |---|---|
 | `ARK_API_KEY` | 只放服务端秘密变量，不进源码、日志、截图、工具参数或前端 |
 | `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` | 你自己账号里的真实资源 |
 | `GENERATION_ENABLED` | 初始为 `false`，只读验证通过并授权后才打开 |
-| `DB` | Sites D1 绑定，部署时应用 `drizzle/0000_jobs.sql` |
+| `REFERENCE_ALLOWED_HOSTS` | 参考图临时下载地址的精确主机名，逗号分隔。初始留空，核验真实来源后再填，不能填完整签名 URL |
+| `DB` | Sites D1 绑定，部署时按顺序应用 `drizzle/` 里的全部迁移，保留已有任务 |
 
 本地通过、线上只读通过、Dots 实际生成、素材质量，是四项独立的结果，一项通过不代表下一项也过了。
 
@@ -154,6 +160,9 @@ npm run check
 | [授权清单](docs/authorizations.md) | 每个需要本人确认的环节，附可复制回复 |
 | [实测案例](docs/demo.md) | 测试提示词、测量结果和已知偏差 |
 | [排障说明](docs/troubleshooting.md) | 常见现象和下一步，先保住原 `request_id` |
+| [参考图与多轮修改](docs/references-and-turns.md) | v0.2 的上传、挂载和原会话续改步骤 |
+| [验证记录](docs/validation-v0.2.md) | v0.2 每一层的实际验证结果 |
+| [变更记录](CHANGELOG.md) | 版本变化与升级注意事项 |
 | [AGENTS.md](AGENTS.md) | 写给接手这个仓库的 Codex |
 
 ---

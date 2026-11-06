@@ -8,7 +8,7 @@
 
 [![Check](https://img.shields.io/github/actions/workflow/status/LearnPrompt/seedacne-dots/ci.yml?branch=main&style=for-the-badge&label=Check&color=5F7A3A)](https://github.com/LearnPrompt/seedacne-dots/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/Code-MIT-5F7A3A?style=for-the-badge)](./LICENSE)
-[![Tools](https://img.shields.io/badge/MCP_Tools-4-5F7A3A?style=for-the-badge)](#%EF%B8%8F-仕組み)
+[![Tools](https://img.shields.io/badge/MCP_Tools-7-5F7A3A?style=for-the-badge)](#%EF%B8%8F-仕組み)
 
 ![Codex](https://img.shields.io/badge/Setup_by-Codex-2B2B2B?style=flat-square)
 ![OpenAI Dots](https://img.shields.io/badge/OpenAI-Dots-2B2B2B?style=flat-square)
@@ -17,7 +17,7 @@
 
 </div>
 
-このリポジトリは、Codex に実行してもらう接続テンプレートです。下のプロンプトを Codex に送ると、あなた自身の Volcengine Ark（火山方舟）エージェントを用意し、あなただけがアクセスできるプライベート MCP サービスをデプロイして、OpenAI Dots につなぎます。あとは Dots の会話で依頼し、進捗を確認し、成果物を受け取るだけです。
+このリポジトリは、Codex に実行してもらう接続テンプレートです。下のプロンプトを Codex に送ると、あなた自身の Volcengine Ark（火山方舟）エージェントを用意し、あなただけがアクセスできるプライベート MCP サービスをデプロイして、OpenAI Dots につなぎます。あとは Dots の会話で依頼し、参考画像を添えたり同じセッションで修正を重ねたりしながら、成果物を受け取るだけです。
 
 Seedacne は、Volcengine Ark の **Seedance Managed Agent** に対するこのプロジェクトでの呼び名です。コンソール、API、コード上の識別子はすべて Seedance です。これは非公式のサンプルで、アカウント、キー、費用はすべてご自身のものです。リポジトリに認証情報は含まれず、共用サービスも提供していません。
 
@@ -92,6 +92,8 @@ Codex が何に沿って動くかは、[セットアッププロンプト全文]
 
 詳しい測定値と SHA-256 は[実測レポート](docs/demo.md)と[メディアメタデータ](assets/media-metadata.json)を参照してください。
 
+v0.2 では参考画像のアップロードと、同じ Session での 2 回の実際の修正も検証済みです。機能は通りましたが、画質にはまだ課題があります。詳しくは[検証記録](docs/validation-v0.2.md)（中国語）をご覧ください。
+
 ---
 
 ## ⚙️ 仕組み
@@ -107,9 +109,12 @@ flowchart LR
 | MCP ツール | 内容 | 費用 |
 |---|---|---|
 | `seedance_connection_status` | 設定を確認。`verify_remote=true` で自分のエージェントと環境を読み取り | 生成なし |
-| `seedance_create_task` | タスクを 1 回送信。`request_id` で D1 に永続的に重複防止 | **有料** |
-| `seedance_get_task` | 元のタスクの状態、停止理由、ツールエラー、最新メッセージを取得 | 生成なし |
-| `seedance_get_outputs` | 登録済みの成果物と有効期限付きダウンロード URL を取得 | 生成なし |
+| `seedance_upload_reference` | Dots で添付した画像を Ark へアップロード。`reference_id` で重複防止 | 生成なし |
+| `seedance_get_reference` | 参考画像のアップロード状態を取得 | 生成なし |
+| `seedance_create_task` | タスクを新規作成。`reference_ids` も指定可。`request_id` で D1 に永続的に重複防止 | **有料** |
+| `seedance_continue_task` | 元の Session で修正を 1 ラウンド追加。毎回新しい `turn_id` を使う | **有料** |
+| `seedance_get_task` | 指定ラウンド（既定は最新）の状態、停止理由、ツールエラーを取得 | 生成なし |
+| `seedance_get_outputs` | 指定ラウンドの成果物と有効期限付きダウンロード URL を取得。古いファイルは新しい結果として扱わない | 生成なし |
 
 ---
 
@@ -117,7 +122,7 @@ flowchart LR
 
 - **Sites 専用です。** テンプレートはゲートウェイが付与する `oai-authenticated-user-id` ヘッダーを信頼しますが、このヘッダーは公開ドキュメントで確認できていません。他のプラットフォームでは同等の認証とユーザー分離が必要で、そのまま公開すると ID を偽装できてしまいます。
 - **北京リージョンのみ検証済みです。** デフォルトは Ark の中国・北京 API です。他のリージョンは未検証で、ドメインを変えるだけでは動きません。
-- **テキスト入力のみです。** タスクの送信、状態確認、成果物の取得ができます。参考素材のアップロード、セッションの継続、複数回の編集は未実装です。
+- **参考画像は JPEG、PNG、WebP のみです。** 1 枚 10 MiB まで、1 ラウンド 6 枚まで。音声や動画の参考素材、尺や解像度の専用パラメーターは未実装です。最初のアップロードはブロックされ、ダウンロード元のホスト名が表示されます。確認してから `REFERENCE_ALLOWED_HOSTS` に追加してください。
 - **`requires_action` で止まると先に進めません。** ツールはそのまま報告するので、続きは Ark 側で調べてください。
 - **プロンプトは 12,000 文字まで。** 超えるとタスクは送信されません。
 
@@ -131,14 +136,15 @@ Node.js 24 以上が必要です。サードパーティの実行時依存はあ
 npm run check
 ```
 
-13 件のオフラインテスト、ビルド、成果物チェック、相対リンクとプライバシーのスキャンを実行します。Ark にはアクセスせず、素材も生成しません。
+すべてのオフラインテスト、ビルド、成果物チェック、相対リンクとプライバシーのスキャンを実行します。Ark にはアクセスせず、素材も生成しません。
 
 | 設定 | 用途 |
 |---|---|
 | `ARK_API_KEY` | サーバー側のシークレットのみ。ソース、ログ、スクリーンショット、ツール引数、フロントエンドには入れない |
 | `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` | 自分のアカウントの実リソース |
 | `GENERATION_ENABLED` | 初期値は `false`。読み取り検証に通り、承認したあとで有効化 |
-| `DB` | Sites の D1 バインディング。デプロイ時に `drizzle/0000_jobs.sql` を適用 |
+| `REFERENCE_ALLOWED_HOSTS` | 参考画像の一時ダウンロード URL の正確なホスト名（カンマ区切り）。初期値は空で、実際の取得元を確認してから設定。署名付き URL 全体は入れない |
+| `DB` | Sites の D1 バインディング。デプロイ時に `drizzle/` のマイグレーションを順にすべて適用し、既存のタスクは残す |
 
 ローカルチェック、オンラインの読み取り検証、Dots での実際の生成、素材の品質は、それぞれ独立した結果です。一つ通っても次が通るとは限りません。
 
@@ -156,6 +162,9 @@ npm run check
 | [承認チェックリスト](docs/authorizations.md) | 本人の確認が必要な場面と、コピーできる返信 |
 | [実測レポート](docs/demo.md) | テストプロンプト、測定結果、既知のずれ |
 | [トラブルシューティング](docs/troubleshooting.md) | 症状と次の手順。まず元の `request_id` を保持 |
+| [参考画像と複数ラウンドの修正](docs/references-and-turns.md) | v0.2 のアップロード、マウント、同一セッションでの修正手順 |
+| [検証記録](docs/validation-v0.2.md) | v0.2 の各レイヤーの実際の検証結果 |
+| [変更履歴](CHANGELOG.md) | バージョンごとの変更とアップグレード時の注意 |
 | [AGENTS.md](AGENTS.md) | このリポジトリを引き継ぐ Codex 向け |
 
 ---

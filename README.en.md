@@ -8,7 +8,7 @@
 
 [![Check](https://img.shields.io/github/actions/workflow/status/LearnPrompt/seedacne-dots/ci.yml?branch=main&style=for-the-badge&label=Check&color=5F7A3A)](https://github.com/LearnPrompt/seedacne-dots/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/Code-MIT-5F7A3A?style=for-the-badge)](./LICENSE)
-[![Tools](https://img.shields.io/badge/MCP_Tools-4-5F7A3A?style=for-the-badge)](#%EF%B8%8F-how-it-works)
+[![Tools](https://img.shields.io/badge/MCP_Tools-7-5F7A3A?style=for-the-badge)](#%EF%B8%8F-how-it-works)
 
 ![Codex](https://img.shields.io/badge/Setup_by-Codex-2B2B2B?style=flat-square)
 ![OpenAI Dots](https://img.shields.io/badge/OpenAI-Dots-2B2B2B?style=flat-square)
@@ -17,7 +17,7 @@
 
 </div>
 
-This repo is a setup template for Codex to run. Send it the prompt below and it provisions your own Volcengine Ark agent, deploys a private MCP service only you can reach, and connects that service to OpenAI Dots. From then on you request work, check progress and collect results inside a Dots conversation.
+This repo is a setup template for Codex to run. Send it the prompt below and it provisions your own Volcengine Ark agent, deploys a private MCP service only you can reach, and connects that service to OpenAI Dots. From then on you request work, attach reference images, keep editing in the same session and collect results inside a Dots conversation.
 
 Seedacne is this project's name for the **Seedance Managed Agent** on Volcengine Ark (火山方舟). The console, the API and the code identifiers all say Seedance. This is an unofficial example: the account, the key and the bill are yours. The repo holds no credentials and offers no shared service.
 
@@ -92,6 +92,8 @@ A single 5-second milk tea video, from the Dots request to the delivered MP4, wi
 
 Full measurements and SHA-256 hashes are in the [demo write-up](docs/demo.md) and [media metadata](assets/media-metadata.json).
 
+v0.2 was also tested live: a reference image upload and two real editing rounds in one Session. Both features passed, and picture quality still has flaws. See the [validation record](docs/validation-v0.2.md) (Chinese).
+
 ---
 
 ## ⚙️ How it works
@@ -107,9 +109,12 @@ flowchart LR
 | MCP tool | What it does | Cost |
 |---|---|---|
 | `seedance_connection_status` | Checks config; with `verify_remote=true`, reads your agent and environment | No generation |
-| `seedance_create_task` | Submits one task, deduplicated durably in D1 by `request_id` | **Paid** |
-| `seedance_get_task` | Reads the original task's status, stop reason, tool errors and latest messages | No generation |
-| `seedance_get_outputs` | Lists registered outputs with time-limited download URLs | No generation |
+| `seedance_upload_reference` | Uploads an image you attached in Dots to Ark, deduplicated by `reference_id` | No generation |
+| `seedance_get_reference` | Reads a reference image's upload status | No generation |
+| `seedance_create_task` | Starts a task, optionally with `reference_ids`, deduplicated durably in D1 by `request_id` | **Paid** |
+| `seedance_continue_task` | Runs one more editing round in the original Session, with a new `turn_id` each time | **Paid** |
+| `seedance_get_task` | Reads a round's status, stop reason and tool errors (latest round by default) | No generation |
+| `seedance_get_outputs` | Lists a round's outputs with time-limited download URLs; older files never count as new results | No generation |
 
 ---
 
@@ -117,7 +122,7 @@ flowchart LR
 
 - **Sites only.** The template trusts the gateway-injected `oai-authenticated-user-id` header, which we could not find in public docs. Any other platform needs equivalent authentication and user isolation. Deployed straight to the public internet, identities can be forged.
 - **Beijing region only.** It defaults to the Ark China Beijing API. Other regions are unverified, and changing the domain is not enough.
-- **Text input only.** You can submit tasks, read status and fetch outputs. Reference uploads, session continuation and multi-round editing are not built.
+- **Reference images: JPEG, PNG and WebP only.** Up to 10 MiB each and 6 per round. Audio or video references and dedicated duration or resolution parameters are not built. The first upload is blocked and reports the download hostname; verify it, then add it to `REFERENCE_ALLOWED_HOSTS`.
 - **No way forward from `requires_action`.** The tool reports it honestly, and you follow up in Ark yourself.
 - **12,000-character prompt limit.** Anything longer is rejected without submitting a task.
 
@@ -131,14 +136,15 @@ Requires Node.js 24 or later, with no third-party runtime dependencies.
 npm run check
 ```
 
-This runs 13 offline tests, the build, an artifact check, and a relative-link and privacy scan. It never contacts Ark or generates anything.
+This runs all offline tests, the build, an artifact check, and a relative-link and privacy scan. It never contacts Ark or generates anything.
 
 | Config | Purpose |
 |---|---|
 | `ARK_API_KEY` | Server-side secret only. Never in source, logs, screenshots, tool arguments or the frontend |
 | `ARK_AGENT_ID` / `ARK_ENVIRONMENT_ID` | Real resources from your own account |
 | `GENERATION_ENABLED` | Starts as `false`. Turn on only after read-only checks pass and you authorize it |
-| `DB` | Sites D1 binding. Apply `drizzle/0000_jobs.sql` on deployment |
+| `REFERENCE_ALLOWED_HOSTS` | Exact hostnames of temporary reference download URLs, comma-separated. Starts empty; fill it in only after verifying the real source. Never a full signed URL |
+| `DB` | Sites D1 binding. Apply every migration in `drizzle/` in order on deployment, keeping existing jobs |
 
 Local checks, read-only online checks, a real Dots generation and output quality are four independent results. Passing one says nothing about the next.
 
@@ -156,6 +162,9 @@ All in Chinese for now.
 | [Authorization checklist](docs/authorizations.md) | Each step that needs you, with replies to copy |
 | [Demo write-up](docs/demo.md) | Test prompt, measurements and known deviations |
 | [Troubleshooting](docs/troubleshooting.md) | Symptoms and next steps. Keep the original `request_id` first |
+| [References and editing rounds](docs/references-and-turns.md) | v0.2 upload, mounting and same-session editing steps |
+| [Validation record](docs/validation-v0.2.md) | What each v0.2 layer actually passed |
+| [Changelog](CHANGELOG.md) | Version changes and upgrade notes |
 | [AGENTS.md](AGENTS.md) | For the Codex taking over this repo |
 
 ---
