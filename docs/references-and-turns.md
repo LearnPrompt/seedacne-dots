@@ -12,6 +12,8 @@ v0.2 在原来的私有 Sites MCP 上增加参考图和多轮工具，沿用原�
 
 下载仅允许 HTTPS、允许名单主机及默认端口，拒绝 IP、localhost、重定向和超限内容；请求不携带方舟 Key 或 Sites 凭据。文件限制为 JPEG、PNG、WebP，最多 10 MiB/图，检查实际格式与尺寸。文件临时 URL 不进入持久账本。过期时重新选择附件，由宿主提供新的授权下载地址。不同附件可能由不同区域的下载 hostname 提供；出现新域名时核验并追加到本实例的精确名单，不用另建插件、换 Key 或换生成任务号。
 
+在 DeepSeek Harness 中，给会话附图和将图片传给方舟 Session 是两步。通过本机 Codex 转接时的文件宿主约束见[排障说明](troubleshooting.md#通过-codex-接入-deepseek-harness)。
+
 ## 2. 上传与首次创作
 
 1. 向 Dots 附上参考图并说明该图用于本次创作。

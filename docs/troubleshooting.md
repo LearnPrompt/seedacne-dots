@@ -30,6 +30,16 @@
 - 构建完成但线上行为没变：核对部署的构建产物、当前部署版本和服务端配置；重新验证实际安装插件的调用。
 - Cloudflare Workers 的重定向错误：模板使用 `redirect:manual`，拒绝非预期重定向。不要改成自动跟随并将 `Authorization` 发往其他目标；按官方文档核对固定上游 URL。
 
+## 通过 Codex 接入 DeepSeek Harness
+
+已安装私有 Seedance 插件的本机 Codex 可以复用原方舟 Agent、Environment 和服务端凭据。Harness 通过 stdio MCP 客户端连接本机转接进程，转接进程用 Codex App Server 发现已授权插件并转发 Seedance 工具调用。私有 Sites MCP 直接连接返回 403 时，先检查接收端是否有对应授权。将同一地址写入另一个客户端的配置，并不会传递 Codex 的连接器授权。
+
+- 工具可见但报 `Invalid tools/call result` 时，检查桥接返回。保留 `content`，将上游值为 `null` 的可选字段（如 `structuredContent`）省略后再返回 MCP 客户端。保留有值的结构化结果和 `isError`，尤其不能吞掉上游失败。
+- 先从 Harness 调用 `seedance_connection_status` 并传 `verify_remote=true`。已在 Harness 0.2.2-rc.5 Web 运行时验证六个工具注册且只读调用返回 `configured=true`、`remote_verified=true`。桌面端渔港测试的原任务随后返回 `end_turn`，按本轮文件名取得一条 1280×720、24 fps、带音轨的 MP4，下载后通过完整解码。
+- Harness 会话支持[本地图片附件](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.2-rc.5/packages/attachment/attachment/README.md)。私有插件的 `seedance_upload_reference` 另需支持 OpenAI `fileParams` 的宿主提供临时授权文件对象。目前的 stdio 转接未映射 Harness 附件，因此通过这条路径仍需使用原插件已经上传的 `reference_id`，若参考素材由 Agent 在同一 Session 内生成，可在下一轮尝试使用该会话的产物，并独立核验使用结果。
+- 生成超时或返回异常时，保持原 `request_id` 和 `turn_id`，先查询任务和本轮产物。运行时成功返回连接状态只证明只读链路可用。
+- 生图工具拒绝目标画幅时，先核对参数支持。实测 4:5 海报可先生成受支持的 3:4 图，在原 Session 新开一轮对真实 PNG 裁切到 4:5。裁切和生成分轮记录，核对新一轮的文件、实际尺寸和工具错误，保留最初的参数校验失败记录。
+
 ## 平台与实现边界
 
 模板默认使用方舟中国北京 API，未验证其他地域。v0.2 提供参考图上传与原 Session 续接；支持格式/大小及文件宿主要求见 [使用说明](references-and-turns.md)。音频/视频参考上传与独立生成参数尚未实现。
